@@ -69,3 +69,9 @@ fabric.properties
 
 # PyCharm Virtual Environments
 venv/
+
+# Kafka Binaries
+kafka/
+
+# Pickle Saves
+*.pkl

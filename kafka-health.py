@@ -1,5 +1,6 @@
 from collections import OrderedDict
 import getopt
+import pandas as pd
 import pickle
 import platform
 import os
@@ -67,10 +68,9 @@ def create_dict_from_list(data):
 
 def create_list_from_output(data):
     data = [re.split('\s{1,}', x) for x in data.decode('utf-8').split('\r\n')]
-    if data[0] == '':
-        data[0].remove('')
-    else:
-        data = [x for x in data if x != ['']]
+    if isinstance(data[0], list):
+        data[0] = list(filter(None, data[0]))
+    data = [x for x in data if x != ['']]
     return data
 
 
@@ -105,11 +105,11 @@ def sum_dict_value_by_key(data, key):
     key_sum = int()
     for k, v in data.items():
         if isinstance(v, dict):
-            key_sum += sum_dict_value_by_key(v, key)
+            key_sum += int(sum_dict_value_by_key(v, key))
         else:
             if k == key:
-                key_sum += int(v)
-    return key_sum
+                key_sum += int(v) if v.isdigit() else int(0)
+    return str(key_sum)
 
 
 def count_dict_value_by_key(data, key):
@@ -143,11 +143,16 @@ def unique_dict_keys(data):
 
 # Utility Functions
 def print_dict(data):
-    for p_key, p_value in data.items():
-        print(p_key, end=' ')
-        for s_key, s_value in p_value.items():
-            print(s_key + ":" + s_value, end=' ')
-        print()
+    sort = unique_dict_keys(data)[-1]
+    data_frame = pd.DataFrame.from_dict(data, orient='index', columns=unique_dict_keys(data))
+    data_frame[sort] = pd.to_numeric(data_frame[sort])
+    print(data_frame.sort_values(sort).to_string(index=False))
+
+    # for p_key, p_value in data.items():
+    #    print(p_key, end=' ')
+    #    for s_key, s_value in p_value.items():
+    #       print(s_key + ":" + str(s_value), end=' ')
+    #    print()
 
 
 def print_list(data):
@@ -167,6 +172,7 @@ def print_list(data):
 
 # Health Check Functions
 def get_consumer_groups_list(kafka_server):
+    global use_cache
     cmd_get_groups = [kafka_bin + script_sep + 'kafka-consumer-groups' + script_ext, '--bootstrap-server',
                       kafka_server, '--list']
     save_data = script_root + script_sep + "kafka_groups.pkl"
@@ -179,6 +185,7 @@ def get_consumer_groups_list(kafka_server):
 
 
 def get_consumer_groups_detail(kafka_server, kafka_group):
+    global use_cache
     cmd_get_lag = [kafka_bin + script_sep + 'kafka-consumer-groups' + script_ext, '--bootstrap-server',
                    kafka_server, '--group', kafka_group, '--describe']
 
@@ -192,8 +199,38 @@ def get_consumer_groups_detail(kafka_server, kafka_group):
     return create_list_from_output(output)
 
 
+def report_lag_per_host(data):
+    data_set = OrderedDict()
+    iter = int(0)
+    key_filter = ['HOST', 'TOPIC', 'LAG']
+    data_x = filter_dict_where_key_value_gt_zero(filter_dict_by_keys(data, key_filter), 'LAG')
+    unique_hosts = unique_dict_values_by_key(data_x, 'HOST')
+    for host in unique_hosts:
+        data_y = filter_dict_where_key_equal_value(data_x, 'HOST', host)
+        unique_topics = unique_dict_values_by_key(data_y, 'TOPIC')
+        for topic in unique_topics:
+            data_z = sum_dict_value_by_key(filter_dict_where_key_equal_value(data_y, 'TOPIC', topic), 'LAG')
+            data_set[iter] = {'HOST': host, 'TOPIC': topic, 'LAG': data_z}
+            iter += 1
+    return sort_dict_by_key(data_set, 'LAG', True)
+
+
+def report_lag_per_topic(data):
+    data_set = OrderedDict()
+    iter = int(0)
+    key_filter = ['TOPIC', 'LAG']
+    data_x = filter_dict_where_key_value_gt_zero(filter_dict_by_keys(data, key_filter), 'LAG')
+    unique_topics = unique_dict_values_by_key(data_x, 'TOPIC')
+    for topic in unique_topics:
+        data_y = sum_dict_value_by_key(filter_dict_where_key_equal_value(data_x, 'TOPIC', topic), 'LAG')
+        data_set[iter] = {'TOPIC': topic, 'LAG': data_y}
+        iter += 1
+    return sort_dict_by_key(data_set, 'LAG', True)
+
+
 # Main Entry
 def main(argv):
+    global use_cache
     if check_os():
         print("Unsupported OS, exiting...")
         exit(2)
@@ -215,18 +252,12 @@ def main(argv):
         elif opt in ("-c", "--cache"):
             use_cache = True
 
-    # my_list = create_list_from_output(output)
-    # my_dict = create_dict_from_list(my_list)
-    # my_filtered_dict = filter_dict_by_keys(my_dict, ['TOPIC', 'HOST', 'LAG'])
-    # my_sorted_dict = sort_dict_by_key(my_filtered_dict, 'LAG', True)
-    # my_zero_dict = filter_dict_where_key_value_gt_zero(my_sorted_dict, 'LAG')
-    # my_value_filtered_dict = filter_dict_where_key_equal_value(my_zero_dict, 'TOPIC', 'OpenNMS.Sink.Telemetry-Netflow-5')
-    # my_unique_topics = unique_dict_values_by_key(my_dict, 'TOPIC')
-    # my_unique_hosts = unique_dict_values_by_key(my_dict, 'HOST')
-    # my_unique_keys = unique_dict_keys(my_dict)
+    kafka_consumers = create_dict_from_list(get_consumer_groups_list(kafka_server))
+    kafka_data = create_dict_from_list(get_consumer_groups_detail(kafka_server, kafka_group))
 
-    kafka_topics = get_consumer_groups_list(kafka_server)
-    kafka_data = get_consumer_groups_detail(kafka_server, kafka_group)
+    print_dict(report_lag_per_host(kafka_data))
+    print_dict(report_lag_per_topic(kafka_data))
+
 
 if __name__ == '__main__':
     main(sys.argv[1:])

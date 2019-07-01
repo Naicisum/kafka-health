@@ -16,7 +16,7 @@ kafka_root = script_root + script_sep + 'kafka'
 kafka_bin = (kafka_root + script_sep + 'bin' + script_sep + 'windows') if platform.system() == 'Windows'\
              else (kafka_root + script_sep + 'bin')
 use_cache = False
-
+debug = False
 
 # OS Functions
 def check_os():
@@ -26,9 +26,10 @@ def check_os():
 
 
 def run_process(args):
-    print("Args: [", end='')
-    print(*args, sep=', ', end='')
-    print("]")
+    if debug:
+        print("Args: [", end='')
+        print(*args, sep=', ', end='')
+        print("]")
     process = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     (out, err) = process.communicate()
     if process.returncode != 0:
@@ -143,16 +144,19 @@ def unique_dict_keys(data):
 
 # Utility Functions
 def print_dict(data):
-    sort = unique_dict_keys(data)[-1]
-    data_frame = pd.DataFrame.from_dict(data, orient='index', columns=unique_dict_keys(data))
-    data_frame[sort] = pd.to_numeric(data_frame[sort])
-    print(data_frame.sort_values(sort).to_string(index=False))
+    if data.__len__() != 0:
+        sort = unique_dict_keys(data)[-1]
+        data_frame = pd.DataFrame.from_dict(data, orient='index', columns=unique_dict_keys(data))
+        data_frame[sort] = pd.to_numeric(data_frame[sort])
+        print(data_frame.sort_values(sort).to_string(index=False))
 
-    # for p_key, p_value in data.items():
-    #    print(p_key, end=' ')
-    #    for s_key, s_value in p_value.items():
-    #       print(s_key + ":" + str(s_value), end=' ')
-    #    print()
+        # for p_key, p_value in data.items():
+        #    print(p_key, end=' ')
+        #    for s_key, s_value in p_value.items():
+        #       print(s_key + ":" + str(s_value), end=' ')
+        #    print()
+    else:
+        print("No lags greater than 0")
 
 
 def print_list(data):
@@ -231,19 +235,24 @@ def report_lag_per_topic(data):
 # Main Entry
 def main(argv):
     global use_cache
+    global debug
+    use_topic = False
+    use_host = False
+    kafka_group = list()
+
     if check_os():
         print("Unsupported OS, exiting...")
         exit(2)
 
     try:
-        opts, args = getopt.getopt(argv, "hcs:g:", ["server=", "group=", "cache"])
+        opts, args = getopt.getopt(argv, "?cs:g:th", ["server=", "group=", "cache", "by-topic", "by-host"])
     except getopt.GetoptError:
-        print(sys.argv[0] + ' -s <kafka server> -g <consumer group>')
+        print(sys.argv[0] + ' -s <kafka server> -g <consumer group> [--by-topic or --by-host]')
         sys.exit(2)
 
     for opt, arg in opts:
-        if opt == '-h':
-            print(sys.argv[0] + ' -s <kafka server> -g <consumer group>')
+        if opt == '-?':
+            print(sys.argv[0] + ' -s <kafka server> -g <consumer group> [--by-topic or --by-host]')
             sys.exit()
         elif opt in ("-s", "--server"):
             kafka_server = arg
@@ -251,12 +260,29 @@ def main(argv):
             kafka_group = arg
         elif opt in ("-c", "--cache"):
             use_cache = True
+        elif opt in ("-t", "--by-topic"):
+            use_topic = True
+        elif opt in ("-h", "--by-host"):
+            use_host = True
+        elif opt in ("-d", "--debug"):
+            debug = True
 
-    kafka_consumers = create_dict_from_list(get_consumer_groups_list(kafka_server))
-    kafka_data = create_dict_from_list(get_consumer_groups_detail(kafka_server, kafka_group))
+    if kafka_group == "" or kafka_group is None:
+        kafka_consumers = get_consumer_groups_list(kafka_server)
+    else:
+        kafka_consumers = list()
+        kafka_consumers.append([kafka_group])
 
-    print_dict(report_lag_per_host(kafka_data))
-    print_dict(report_lag_per_topic(kafka_data))
+    if use_host is True or use_topic is True:
+        for consumer in kafka_consumers:
+            print("Processing Consumer: " + consumer[0])
+            kafka_data = create_dict_from_list(get_consumer_groups_detail(kafka_server, consumer[0]))
+            if use_host:
+                print_dict(report_lag_per_host(kafka_data))
+            if use_topic:
+                print_dict(report_lag_per_topic(kafka_data))
+    else:
+        print("Error: Output by Topic or Host not specified")
 
 
 if __name__ == '__main__':

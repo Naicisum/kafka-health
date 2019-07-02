@@ -18,6 +18,7 @@ kafka_bin = (kafka_root + script_sep + 'bin' + script_sep + 'windows') if platfo
 use_cache = False
 debug = False
 
+
 # OS Functions
 def check_os():
     if platform.system() in ('Windows', 'Linux'):
@@ -184,7 +185,8 @@ def get_consumer_groups_list(kafka_server):
         output = load_variables(save_data)
     else:
         (output, error) = run_process(cmd_get_groups)
-        save_variables(save_data, output)
+        if use_cache:
+            save_variables(save_data, output)
     return create_list_from_output(output)
 
 
@@ -199,7 +201,8 @@ def get_consumer_groups_detail(kafka_server, kafka_group):
         output = load_variables(save_data)
     else:
         (output, error) = run_process(cmd_get_lag)
-        save_variables(save_data, output)
+        if use_cache:
+            save_variables(save_data, output)
     return create_list_from_output(output)
 
 

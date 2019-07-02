@@ -1,3 +1,4 @@
+#!./venv/bin/python
 from collections import OrderedDict
 import getopt
 import pandas as pd
@@ -69,10 +70,13 @@ def create_dict_from_list(data):
 
 
 def create_list_from_output(data):
-    data = [re.split('\s{1,}', x) for x in data.decode('utf-8').split('\r\n')]
+    if platform.system() == 'Windows':
+        data = [re.split('\s{1,}', x) for x in data.decode('utf-8').split('\r\n')]
+    if platform.system() == 'Linux':
+        data = [re.split('\s{1,}', x) for x in data.decode('utf-8').split('\n')]
     if isinstance(data[0], list):
         data[0] = list(filter(None, data[0]))
-    data = [x for x in data if x != ['']]
+    data = [x for x in data if x != [''] and x != []]
     return data
 
 
@@ -150,14 +154,8 @@ def print_dict(data):
         data_frame = pd.DataFrame.from_dict(data, orient='index', columns=unique_dict_keys(data))
         data_frame[sort] = pd.to_numeric(data_frame[sort])
         print(data_frame.sort_values(sort).to_string(index=False))
-
-        # for p_key, p_value in data.items():
-        #    print(p_key, end=' ')
-        #    for s_key, s_value in p_value.items():
-        #       print(s_key + ":" + str(s_value), end=' ')
-        #    print()
     else:
-        print("No lags greater than 0")
+        print("No Data")
 
 
 def print_list(data):
@@ -208,7 +206,7 @@ def get_consumer_groups_detail(kafka_server, kafka_group):
 
 def report_lag_per_host(data):
     data_set = OrderedDict()
-    iter = int(0)
+    iterator = int(0)
     key_filter = ['HOST', 'TOPIC', 'LAG']
     data_x = filter_dict_where_key_value_gt_zero(filter_dict_by_keys(data, key_filter), 'LAG')
     unique_hosts = unique_dict_values_by_key(data_x, 'HOST')
@@ -217,21 +215,21 @@ def report_lag_per_host(data):
         unique_topics = unique_dict_values_by_key(data_y, 'TOPIC')
         for topic in unique_topics:
             data_z = sum_dict_value_by_key(filter_dict_where_key_equal_value(data_y, 'TOPIC', topic), 'LAG')
-            data_set[iter] = {'HOST': host, 'TOPIC': topic, 'LAG': data_z}
-            iter += 1
+            data_set[iterator] = {'HOST': host, 'TOPIC': topic, 'LAG': data_z}
+            iterator += 1
     return sort_dict_by_key(data_set, 'LAG', True)
 
 
 def report_lag_per_topic(data):
     data_set = OrderedDict()
-    iter = int(0)
+    iterator = int(0)
     key_filter = ['TOPIC', 'LAG']
     data_x = filter_dict_where_key_value_gt_zero(filter_dict_by_keys(data, key_filter), 'LAG')
     unique_topics = unique_dict_values_by_key(data_x, 'TOPIC')
     for topic in unique_topics:
         data_y = sum_dict_value_by_key(filter_dict_where_key_equal_value(data_x, 'TOPIC', topic), 'LAG')
-        data_set[iter] = {'TOPIC': topic, 'LAG': data_y}
-        iter += 1
+        data_set[iterator] = {'TOPIC': topic, 'LAG': data_y}
+        iterator += 1
     return sort_dict_by_key(data_set, 'LAG', True)
 
 
@@ -241,14 +239,15 @@ def main(argv):
     global debug
     use_topic = False
     use_host = False
-    kafka_group = list()
+    kafka_group = None
+    kafka_server = None
 
     if check_os():
         print("Unsupported OS, exiting...")
         exit(2)
 
     try:
-        opts, args = getopt.getopt(argv, "?cs:g:th", ["server=", "group=", "cache", "by-topic", "by-host"])
+        opts, args = getopt.getopt(argv, "?cs:g:thd", ["server=", "group=", "cache", "by-topic", "by-host", "debug"])
     except getopt.GetoptError:
         print(sys.argv[0] + ' -s <kafka server> -g <consumer group> [--by-topic or --by-host]')
         sys.exit(2)
@@ -270,6 +269,10 @@ def main(argv):
         elif opt in ("-d", "--debug"):
             debug = True
 
+    if kafka_server == "" or kafka_server is None:
+        print("No Server Specified")
+        sys.exit(2)
+
     if kafka_group == "" or kafka_group is None:
         kafka_consumers = get_consumer_groups_list(kafka_server)
     else:
@@ -277,13 +280,18 @@ def main(argv):
         kafka_consumers.append([kafka_group])
 
     if use_host is True or use_topic is True:
+        if debug:
+            print_list(kafka_consumers)
         for consumer in kafka_consumers:
             print("Processing Consumer: " + consumer[0])
+            print()
             kafka_data = create_dict_from_list(get_consumer_groups_detail(kafka_server, consumer[0]))
             if use_host:
                 print_dict(report_lag_per_host(kafka_data))
+                print()
             if use_topic:
                 print_dict(report_lag_per_topic(kafka_data))
+                print()
     else:
         print("Error: Output by Topic or Host not specified")
 
